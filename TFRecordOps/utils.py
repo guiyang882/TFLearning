@@ -1,6 +1,7 @@
 import cv2
 import tensorflow as tf
 import os
+import time
 
 cifar10_label_path = "/home/guiyang/Downloads/cifar/labels.txt"
 cifar10_test_dir = "/home/guiyang/Downloads/cifar/test/"
@@ -14,7 +15,7 @@ def _getFeature(value, outType=None):
         return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
     return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
 
-def CIFAR10_RWTFRecord_SingleThread(readDirPath, labelPath, writeFilePath):
+def CIFAR10_WTFRecord_SingleThread(readDirPath, labelPath, writeFilePath):
     # for cifar10 format: the data is (image_Value, image_label)
 
     def _build_Label_Dict():
@@ -48,8 +49,77 @@ def CIFAR10_RWTFRecord_SingleThread(readDirPath, labelPath, writeFilePath):
         writer.write(example.SerializeToString())
     writer.close()
 
+def CIFAR10_RTFRecord_SingleThread(readFile, batch_size, num_epochs):
+
+    def _read_and_decode(filename_queue):
+        reader = tf.TFRecordReader()
+        _, serialized_example = reader.read(filename_queue)
+        features = tf.parse_single_example(
+            serialized=serialized_example,
+            features={
+                "height": tf.FixedLenFeature([], tf.int64),
+                "width": tf.FixedLenFeature([], tf.int64),
+                "depth": tf.FixedLenFeature([], tf.int64),
+                "label": tf.FixedLenFeature([], tf.int64),
+                "imgRaw": tf.FixedLenFeature([], tf.string)
+            }
+        )
+        imgRaw = tf.decode_raw(features["imgRaw"], tf.uint8)
+        imgHeight = tf.cast(features["height"], tf.int64)
+        imgWidth = tf.cast(features["width"], tf.int64)
+        imgDepth = tf.cast(features["depth"], tf.int64)
+        imgRaw.set_shape((imgHeight, imgWidth, imgDepth))
+        imgLabel = tf.cast(features["label"], tf.int64)
+        return imgRaw, imgLabel
+
+    with tf.name_scope("input"):
+        filename_que = tf.train.string_input_producer(
+            string_tensor=[readFile],
+            num_epochs=num_epochs
+        )
+        image, label = _read_and_decode(filename_queue=filename_que)
+        images, spare_labels = tf.train.shuffle_batch(
+            tensors=[image, label],
+            batch_size=batch_size,
+            num_threads=2,
+            min_after_dequeue=1000
+        )
+        return images, spare_labels
+
 if __name__ == "__main__":
-    readDirPath = cifar10_train_dir
-    labelPath = cifar10_label_path
-    writeFilePath = cifar10_tfrecords_dir + "cifar10.train.tfrecords"
-    CIFAR10_RWTFRecord_SingleThread(readDirPath=readDirPath, labelPath=labelPath, writeFilePath=writeFilePath)
+    def _test_Writer():
+        readDirPath = cifar10_train_dir
+        labelPath = cifar10_label_path
+        writeFilePath = cifar10_tfrecords_dir + "cifar10.train.tfrecords"
+        CIFAR10_WTFRecord_SingleThread(readDirPath=readDirPath, labelPath=labelPath, writeFilePath=writeFilePath)
+
+    def _test_Reader():
+        with tf.Graph().as_default():
+            readFile = "/home/guiyang/Downloads/cifar/tfrecords/cifar10.test.tfrecords"
+            batch_size = 32
+            num_epochs = 1
+            images, labels = CIFAR10_RTFRecord_SingleThread(readFile=readFile, batch_size=batch_size, num_epochs=num_epochs)
+
+            init_op = tf.group(
+                tf.global_variables_initializer(),
+                tf.local_variables_initializer()
+            )
+            with tf.Session(config=tf.ConfigProto(
+                log_device_placement=True
+            )) as sess:
+                sess.run(init_op)
+                coord = tf.train.Coordinator()
+                threads = tf.train.start_queue_runners(
+                    sess=sess,
+                    coord=coord
+                )
+                try:
+                    with not coord.should_stop():
+                        start_time = time.time()
+                        print(sess.run([images, labels]))
+                        duration = time.time() - start_time
+                except tf.errors.OutOfRangeError:
+                    print("Done Fetch data sets")
+                finally:
+                    coord.request_stop()
+                coord.join(threads=threads)
