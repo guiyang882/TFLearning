@@ -4,3 +4,4 @@
 .idea/workspace.xml
 *~
 *.[ao]
+./bazelplayground/bazel-*/*
