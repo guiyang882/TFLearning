@@ -8,6 +8,10 @@ cifar10_test_dir = "/home/guiyang/Downloads/cifar/test/"
 cifar10_train_dir = "/home/guiyang/Downloads/cifar/train/"
 cifar10_tfrecords_dir = "/home/guiyang/Downloads/cifar/tfrecords/"
 
+IMG_WIDTH = 32
+IMG_HEIGHT = 32
+IMG_DEPTH = 3
+
 def _getFeature(value, outType=None):
     if outType == tf.float32:
         return tf.train.Feature(float_list=tf.train.FloatList(value=[value]))
@@ -50,7 +54,6 @@ def CIFAR10_WTFRecord_SingleThread(readDirPath, labelPath, writeFilePath):
     writer.close()
 
 def CIFAR10_RTFRecord_SingleThread(readFile, batch_size, num_epochs):
-
     def _read_and_decode(filename_queue):
         reader = tf.TFRecordReader()
         _, serialized_example = reader.read(filename_queue)
@@ -68,7 +71,7 @@ def CIFAR10_RTFRecord_SingleThread(readFile, batch_size, num_epochs):
         imgHeight = tf.cast(features["height"], tf.int64)
         imgWidth = tf.cast(features["width"], tf.int64)
         imgDepth = tf.cast(features["depth"], tf.int64)
-        imgRaw.set_shape((imgHeight, imgWidth, imgDepth))
+        imgRaw.set_shape((IMG_HEIGHT * IMG_WIDTH * IMG_DEPTH))
         imgLabel = tf.cast(features["label"], tf.int64)
         return imgRaw, imgLabel
 
@@ -80,9 +83,10 @@ def CIFAR10_RTFRecord_SingleThread(readFile, batch_size, num_epochs):
         image, label = _read_and_decode(filename_queue=filename_que)
         images, spare_labels = tf.train.shuffle_batch(
             tensors=[image, label],
+            capacity=500 + 3 * batch_size,
             batch_size=batch_size,
             num_threads=2,
-            min_after_dequeue=1000
+            min_after_dequeue=500
         )
         return images, spare_labels
 
@@ -98,7 +102,10 @@ if __name__ == "__main__":
             readFile = "/home/guiyang/Downloads/cifar/tfrecords/cifar10.test.tfrecords"
             batch_size = 32
             num_epochs = 1
-            images, labels = CIFAR10_RTFRecord_SingleThread(readFile=readFile, batch_size=batch_size, num_epochs=num_epochs)
+            images, labels = CIFAR10_RTFRecord_SingleThread(
+                readFile=readFile,
+                batch_size=batch_size,
+                num_epochs=num_epochs)
 
             init_op = tf.group(
                 tf.global_variables_initializer(),
@@ -114,7 +121,7 @@ if __name__ == "__main__":
                     coord=coord
                 )
                 try:
-                    with not coord.should_stop():
+                    while not coord.should_stop():
                         start_time = time.time()
                         print(sess.run([images, labels]))
                         duration = time.time() - start_time
@@ -123,3 +130,4 @@ if __name__ == "__main__":
                 finally:
                     coord.request_stop()
                 coord.join(threads=threads)
+    _test_Reader()
