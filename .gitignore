@@ -5,6 +5,7 @@
 *~
 *.[ao]
 ./bazelplayground/bazel-*/*
+./c11learning/bazel-*/*
 *.csv
 *.log
 *.bin

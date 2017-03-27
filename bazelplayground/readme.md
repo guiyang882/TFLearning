@@ -16,6 +16,8 @@
 │   ├── hello-time.h
 │   └── hello-world.cpp
 └── WORKSPACE
+
+bazel build source:hello-world
 ```
 
 
